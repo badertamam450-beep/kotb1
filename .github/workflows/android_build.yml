@@ -1,15 +1,18 @@
 name: Build Android APK (كتاب ابدأ من الصفر)
 
-"on":
+on:
   push:
     branches: [ "main", "master" ]
   pull_request:
     branches: [ "main", "master" ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
-    name: Build APK & Generate Download Link
+    name: Build APK & Publish Download Link
     runs-on: ubuntu-latest
 
     steps:
@@ -33,31 +36,43 @@ jobs:
           fi
           echo "GEMINI_API_KEY=${GEMINI_API_KEY}" >> .env
 
-          # Setup release.keystore
           if [ -n "$KEYSTORE_BASE64" ]; then
-            printf '%s' "$KEYSTORE_BASE64" | base64 --decode > release.keystore || true
-          elif [ -f "debug.keystore.base64" ]; then
-            base64 -d debug.keystore.base64 > release.keystore || true
+            printf '%s' "$KEYSTORE_BASE64" | base64 --decode > release.keystore
           fi
 
           if [ ! -s release.keystore ]; then
-            keytool -genkey -v -keystore release.keystore -storepass android -alias upload -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Release,O=Android,C=US"
+            keytool -genkey -v \
+              -keystore release.keystore \
+              -storepass android \
+              -alias upload \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Release,O=Android,C=US"
           fi
 
-          # Setup debug.keystore
           if [ ! -f "debug.keystore" ]; then
-            keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+            keytool -genkey -v \
+              -keystore debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
           fi
 
           chmod +x gradlew || true
 
-      - name: Setup Gradle
+      - name: Setup Gradle 9.3.1
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.11.1'
-          cache-disabled: true
+          gradle-version: '9.3.1'
+          cache-disabled: false
 
-      - name: Build Android APK
+      - name: Build Release & Debug APK
         env:
           CM_KEYSTORE_PASSWORD: ${{ secrets.CM_KEYSTORE_PASSWORD || 'android' }}
           CM_KEY_ALIAS: ${{ secrets.CM_KEY_ALIAS || 'upload' }}
@@ -65,26 +80,52 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           KEYSTORE_PATH: release.keystore
         run: |
-          gradle :app:assembleRelease :app:assembleDebug --no-daemon --no-configuration-cache --no-build-cache --stacktrace -x test -x lint
+          gradle :app:assembleRelease :app:assembleDebug --no-daemon --stacktrace -x test -x lint
 
-      - name: Upload APK Artifact
+      - name: Verify APK Outputs
+        run: |
+          test -s app/build/outputs/apk/release/app-release.apk
+          test -s app/build/outputs/apk/debug/app-debug.apk
+          ls -lh app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Upload APK Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: Ebda-Men-Al-Sefr-APK
-          path: app/build/outputs/apk/**/*.apk
-          if-no-files-found: warn
+          path: |
+            app/build/outputs/apk/release/app-release.apk
+            app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
           retention-days: 30
 
-      - name: Direct Download Instructions
+      - name: Publish Release APK
         env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: v1.0.${{ github.run_number }}
+        run: |
+          gh release create "$TAG_NAME" \
+            app/build/outputs/apk/release/app-release.apk \
+            app/build/outputs/apk/debug/app-debug.apk \
+            --title "ابدأ من الصفر - Android APK $TAG_NAME" \
+            --notes "نسخة APK مبنية آلياً من GitHub Actions، ومهيأة للعمل على Android 15 (API 35) وما بعده." \
+            --latest=false
+
+      - name: Write Download Links
+        env:
+          TAG_NAME: v1.0.${{ github.run_number }}
+          RELEASE_URL: ${{ github.server_url }}/${{ github.repository }}/releases/tag/v1.0.${{ github.run_number }}
+          APK_URL: ${{ github.server_url }}/${{ github.repository }}/releases/download/v1.0.${{ github.run_number }}/app-release.apk
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           {
-            echo "## Android APK (كتاب ابدأ من الصفر)"
+            echo "## كتاب ابدأ من الصفر — APK"
             echo
-            echo "✅ The APK was built successfully for Android 15 (SDK 35)."
+            echo "### ✅ Build completed successfully"
             echo
-            echo "- Artifact: **Ebda-Men-Al-Sefr-APK**"
-            echo "- Download Link: [Open this workflow run]($RUN_URL), then download the artifact from the **Artifacts** section."
+            echo "- Android target: **15 / API 35**"
+            echo "- Release: [$TAG_NAME]($RELEASE_URL)"
+            echo "- **Direct APK download:** [$APK_URL]($APK_URL)"
+            echo "- Workflow run: [$RUN_URL]($RUN_URL)"
+            echo
+            echo "يمكن تثبيت app-release.apk مباشرة على الهاتف المتوافق."
           } >> "$GITHUB_STEP_SUMMARY"
-
