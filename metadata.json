@@ -1,0 +1,6 @@
+{
+  "name": "ابدأ من الصفر",
+  "description": "تطبيق كتاب ابدأ من الصفر فالحياة لا تهب الأماني للدكتور مالك عبدالرحمن الرميمة مع قارئ متقدم، فهرس، تدوين ملاحظات، وميزات قراءة تفاعلية متوافقة مع أندرويد 15.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
